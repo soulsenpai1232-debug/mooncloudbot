@@ -3,6 +3,7 @@ from discord.ext import commands
 import os
 import asyncio
 import random
+from dotenv import load_dotenv
 
 # Core Privileged Gateways Setup
 intents = discord.Intents.default()
@@ -215,7 +216,7 @@ async def lock(ctx):
 
     overwrite = ctx.channel.overwrites_for(ctx.guild.default_role)
     if overwrite.send_messages is False:
-        await ctx.send("This channel channel status is already flagged as locked.", delete_after=5)
+        await ctx.send("This channel status is already flagged as locked.", delete_after=5)
         return
 
     overwrite.send_messages = False
@@ -267,16 +268,39 @@ async def addemoji(ctx, emoji: discord.PartialEmoji = None, name: str = None):
 
     emoji_name = name if name else emoji.name
     try:
-        for emoji in emojis:
-            try:
-                emoji_bytes = await emoji.read()
-                await ctx.guild.create_custom_emoji(name=emoji.name, image=emoji_bytes)
-                success_count += 1
-            except:
-                fail_count += 1
-            await asyncio.sleep(1) # Safety delay to prevent Discord rate limits
+        emoji_bytes = await emoji.read()
+        new_emoji = await ctx.guild.create_custom_emoji(name=emoji_name, image=emoji_bytes)
+        await ctx.send(f"Success: Loaded custom asset '{new_emoji.name}' into server directory.", delete_after=5)
+    except Exception as error:
+        await ctx.send(f"Asset Fetch Error: Failed to load data. Details: {error}", delete_after=5)
 
-        await status_msg.edit(content=f"Batch Update: Finished asset array. Loaded: `{success_count}`. Failed/Skipped: `{fail_count}`.", delete_after=10)
+@bot.command()
+@commands.has_permissions(manage_expressions=True)
+async def addmanyemojis(ctx, *emojis: discord.PartialEmoji):
+    """Processes batch queues of standard custom objects and resolves attachments."""
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
+    if not emojis:
+        await ctx.send("Error: Provide emoji tags. Usage: .addmanyemojis [emoji1] [emoji2] ...", delete_after=5)
+        return
+
+    success_count = 0
+    fail_count = 0
+    status_msg = await ctx.send("Processing asset array ingestion stack... Please hold.")
+
+    for emoji in emojis:
+        try:
+            emoji_bytes = await emoji.read()
+            await ctx.guild.create_custom_emoji(name=emoji.name, image=emoji_bytes)
+            success_count += 1
+        except:
+            fail_count += 1
+        await asyncio.sleep(1)
+
+    await status_msg.edit(content=f"Batch Update: Finished asset array. Loaded: {success_count}. Failed/Skipped: {fail_count}.", delete_after=10)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 5. INTERACTIVE GIVEAWAY CORE ENGINE
@@ -301,11 +325,11 @@ async def giveaway(ctx, duration: str = None, *, item_prize: str = None):
         return await ctx.send("Error: Invalid time format. Use numbers followed by s, m, or h.", delete_after=5)
 
     converted_ticks = parsed_quantum if suffix_identifier == 's' else parsed_quantum * 60 if suffix_identifier == 'm' else parsed_quantum * 3600 if suffix_identifier == 'h' else 0
+
     if converted_ticks <= 0:
         return await ctx.send("Error: Runtime duration cannot stay at or below zero.", delete_after=5)
 
-    event_embed = discord.Embed(title="GIVEAWAY STARTED", description=f"Prize: **{item_prize}**\nDuration: **{duration}**\n\nReact below to join!", color=discord.Color.purple())
-    
+    event_embed = discord.Embed(title="GIVEAWAY STARTED", description=f"Prize: {item_prize}\nDuration: {duration}\n\nReact below to join!", color=discord.Color.purple())
     live_msg = await ctx.send(embed=event_embed)
     await live_msg.add_reaction("🎉")
 
@@ -316,11 +340,11 @@ async def giveaway(ctx, duration: str = None, *, item_prize: str = None):
     target_pool = [identity async for identity in target_reaction.users() if not identity.bot]
 
     if not target_pool:
-        await ctx.send(f"No one entered the giveaway. **{item_prize}** has no winner!")
+        await ctx.send(f"No one entered the giveaway. {item_prize} has no winner!")
         return
 
     selected_winner = random.choice(target_pool)
-    victory_embed = discord.Embed(title="GIVEAWAY WINNER", description=f"Winner: {selected_winner.mention}\nPrize: **{item_prize}**", color=discord.Color.gold())
+    victory_embed = discord.Embed(title="GIVEAWAY WINNER", description=f"Winner: {selected_winner.mention}\nPrize: {item_prize}", color=discord.Color.gold())
     await ctx.send(embed=victory_embed)
     await ctx.send(f"Congratulations {selected_winner.mention}! Open a ticket channel to claim your prize.")
 
@@ -334,8 +358,9 @@ async def purge(ctx, limit_range: int):
     """Wipes raw message matrices from text targets completely."""
     if limit_range < 1:
         return await ctx.send("Specify a valid number over zero.")
+
     flushed_count = await ctx.channel.purge(limit=limit_range + 1)
-    await ctx.send(f"Cleared `{len(flushed_count)-1}` messages cleanly.", delete_after=4)
+    await ctx.send(f"Cleared {len(flushed_count)-1} messages cleanly.", delete_after=4)
 
 @bot.command()
 @commands.has_permissions(kick_members=True)
@@ -344,6 +369,7 @@ async def kick(ctx, target_user: discord.Member, *, reason_str="No reason specif
         await ctx.message.delete()
     except:
         pass
+
     await target_user.kick(reason=reason_str)
     await ctx.send(f"{target_user.name} was kicked successfully.", delete_after=5)
 
@@ -354,6 +380,7 @@ async def ban(ctx, target_user: discord.Member, *, reason_str="No reason specifi
         await ctx.message.delete()
     except:
         pass
+
     await target_user.ban(reason=reason_str)
     await ctx.send(f"{target_user.name} has been banned permanently.", delete_after=5)
 
@@ -370,8 +397,8 @@ class TicketButtons(discord.ui.View):
         guild = interaction.guild
         user = interaction.user
         thread_id = f"ticket-{user.name.lower()}"
-        
         running_thread = discord.utils.get(guild.text_channels, name=thread_id)
+        
         if running_thread:
             await interaction.response.send_message(f"Error: You already have a ticket open at: {running_thread.mention}", ephemeral=True)
             return
@@ -381,9 +408,11 @@ class TicketButtons(discord.ui.View):
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
+
         allocated_chan = await guild.create_text_channel(name=thread_id, overwrites=matrix_overwrites)
         control_deck = CloseTicketView()
         onboarding_embed = discord.Embed(title="PRIVATE SUPPORT TERMINAL", description=f"Welcome {user.mention},\nStaff will arrive shortly. Click the button below to close this ticket channel when finished.", color=discord.Color.blurple())
+        
         await allocated_chan.send(embed=onboarding_embed, view=control_deck)
         await interaction.response.send_message(f"Ticket generated cleanly! Go to: {allocated_chan.mention}", ephemeral=True)
 
@@ -405,6 +434,7 @@ async def setup_ticket(ctx):
         await ctx.message.delete()
     except:
         pass
+
     onboarding_deck = discord.Embed(title="CORE SUPPORT AND CLAIMS DESK", description="Looking to claim specific benchmark level rewards or process partnerships?\nClick the button down below to start a private hidden line with server staff.", color=discord.Color.dark_grey())
     await ctx.send(embed=onboarding_deck, view=TicketButtons())
 
